@@ -1,0 +1,408 @@
+graph TD;
+    subgraph "BOOT"
+        powerup(Power On)
+        bootscreen("Press a key to view BIOS's boot order screen
+            <br /><br />
+            e.g.
+            <br />
+            F12 for HP
+            <br />
+            F10 for Intel BIOS firmware
+            <br />
+            Esc or F2 for some other firmwares")
+        powerup-->bootscreen
+        existing_qubes("Boot existing Qubes installation")
+        bootscreen-->|REGULAR PATH|existing_qubes
+        boot-uefi(UEFI)
+        boot-legacy-bios(Legacy BIOS)
+        existing_qubes-->|BIOS's BOOT order screen -> Boot line says UEFI|boot-uefi
+        existing_qubes-->|BIOS's BOOT order screen -> Boot line does not say UEFI|boot-legacy-bios
+        grub-bootmgr("Grub 2.0
+            <br /><br />
+            WRITES to storage: grub-install /dev/nvme1n1
+            <br />
+            WRITES to storage: grub-update")
+        boot-legacy-bios-->grub-bootmgr
+        boot-uefi-->efi-bootmgr("EFI Boot Mgr
+            <br /><br />
+            efibootmgr
+            <br />
+            efibootmgr --verbose
+            <br />
+            DO NOT COPY PASTE device names below
+            <br />
+            WRITES to storage
+            : efibootmgr -v -c -u -L Qubes -l /EFI/qubes/xen.efi -d /dev/nvme1n1 -p 1 'placeholder /mapbs /noexitboot'
+            ")
+        liveCD("Live USB / CD
+        <br /><br />
+        mkusb
+        <br />
+        Ubuntu Studio 20.10
+        ")
+        bootscreen-.->|DEBUG PATH|liveCD
+    end
+
+    subgraph sg_existing_qubes ["Boot from existing Qubes installation"]
+        subgraph "Xen on EFI Partition"
+            efi-xen("Xen EFI component
+                <br /><br />
+                /EFI/qubes/xen.efi")
+            efi-bootmgr-->efi-xen
+            efi-xencfg("Xen Config
+                <br /><br />
+                /EFI/qubes/xen.cfg")
+            efi-xen-->efi-xencfg
+            efi-boot-halt("Q: How do you interrupt the UEFI boot process ?
+                <br /><br />
+                TBD
+                <br /><br />
+                Q: How do you select a kernel different
+                <br />
+                from the default kernel in xen.cfg ?
+                <br /><br />
+                TBD
+                ")
+        end
+
+        subgraph "Xen on Boot Partition"
+            grub-xen("Grub Config
+                <br /><br />
+                /boot/grub2/grub.cfg")
+            grub-bootmgr-->grub-xen
+            grub-xencfg("Xen Config
+                <br /><br />
+                /boot/grub2/xen.cfg")
+            grub-xen-->grub-xencfg
+            node-grub-halt("Q: How do you interrupt the Grub boot process ?
+                <br /><br />
+                A: Hit the Esc key.
+                <br /><br />
+                If you're in the grub shell and want to get back
+                <br />
+                to the grub menu choices : Type 'normal' and hit Enter.
+                <br />
+                Once in the grub menu screen, immediately hit the Esc key
+                <br /><br />
+                Q: How do you select a kernel different
+                <br />
+                from the default kernel in grub.cfg ?
+                <br /><br />
+                A: Up / Down arrow keys and then Enter to select")
+        end
+
+        subgraph "Initialize Linux via Xen"
+            xen-linux("Xen 4.8 hypervisor as kernel
+                <br />
+                Qubes Linux kernel as module
+                <br />
+                Qubes initramfs kernel as module")
+            efi-xencfg-->xen-linux
+            grub-xencfg-->xen-linux
+            linux("Qubes Linux kernel vmlinuz + initramfs")
+            xen-linux-->linux
+        end
+    end
+
+    classDef Tier2SubGraph fill:#66dd66dd;
+    class sg_existing_qubes Tier2SubGraph
+
+    classDef InfoMissing fill:#dd6666dd
+    class efi-boot-halt InfoMissing
+
+    subgraph "Decrypt Root Partition"
+        cryptsetup("LUKS disk encryption / cryptsetup
+            <br /><br />
+            cryptsetup open /dev/nvme1n1p3 luks-$(blkid -s UUID -o value /dev/nvme1n1p3)
+            <br /><br />
+            lsblk -a -o+uuid,PTUUID | grep -i -e nvme -e luks -e sd[a-z][0-9]
+            <br />
+            blkid | grep -i -e nvme -e luks -e sd[a-z][0-9]
+            ")
+        linux-->cryptsetup
+        node-luks-backup("LUKS READ
+        <br /><br />
+        dmsetup ls --target crypt
+        <br /><br />
+        lsblk /dev/mapper/luks-$(blkid -s UUID -o value /dev/nvme1n1p3)
+        <br /><br />
+        lsblk /dev/nvme1n1p3
+        <br /><br />
+        cryptsetup luksDump /dev/nvme1n1p3
+        <br /><br />
+        LUKS header information for /dev/nvme1n1p3
+        <br /><br />
+        Version:        1
+        <br />
+        Cipher name:    aes
+        <br />
+        Cipher mode:    xts-plain64
+        <br />
+        Hash spec:      sha256
+        <br />
+        Payload offset: 4096
+        <br />
+        MK bits:        512
+        <br />
+        ...
+        <br />
+        Key Slot 4: DISABLED
+        <br />
+        Key Slot 5: DISABLED
+        <br />
+        Key Slot 6: DISABLED
+        <br />
+        Key Slot 7: DISABLED
+        <br /><br />
+        cryptsetup luksHeaderBackup /dev/nvme1n1p3 --header-backup-file /remote/path/qubes.compaq.luksHeader.bin
+        <br /><br />
+        ls -rtlah /remote/path/qubes.compaq.luksHeader.bin
+        <br />
+        file /remote/path/qubes.compaq.luksHeader.bin
+        <br />
+        stat /remote/path/qubes.compaq.luksHeader.bin
+        <br />
+        cryptsetup luksDump /remote/path/qubes.compaq.luksHeader.bin
+        <br /><br />
+        ")
+        node-luks-modify("LUKS MODIFY
+        <br /><br />
+        : cryptsetup luksAddKey --key-slot 1 /dev/nvme1n1p3
+        <br />
+        : cryptsetup luksRemoveKey /dev/nvme1n1p3
+        <br />
+        : cryptsetup luksKillSlot /dev/nvme1n1p3 <key-slot-number>
+        ")
+        node-luks-restore("LUKS RESTORE
+        <br /><br />
+        DESTRUCTIVE WRITE: RESTORE: # cryptsetup luksHeaderRestore /dev/nvme1n1p3 --header-backup-file /remote/path/qubes.compaq.luksHeader.bin
+        ")
+        node-luks-destroy("LUKS SMASH
+        <br /><br />
+        If NSA lands on your door and wants to know the location
+        <br />
+        of your secret Arctic fortress, use wipefs to destroy the LUKS header
+        <br />
+        i.e. overwrite header {salt values} and key-slot areas
+        <br />
+        TBD : dd if=/dev/zero of=/dev/nvme1n1p3 bs=1M count=3
+        <br /><br />
+        # to verify if a partition is a LUKS partition
+        <br />
+        cryptsetup -v isLuks /dev/nvme1n1p3
+        ")
+    end
+
+    subgraph Device / Disk / Partition tools
+        whatweknow("What we know by this point
+            <br /><br />
+            Whether Boot is via UEFI or Legacy BIOS
+            <br />
+            Main disk: /dev/nvme1n1
+            <br />
+            - EFI partition: /dev/nvme1n1p1
+            <br />
+            - boot partiton: /dev/nvme1n1p2
+            <br />
+            - root partiton: /dev/nvme1n1p3
+            <br />
+            Secondary disk: /dev/nvme0n1
+            ")
+        liveCD-.->tools("Other Tools
+            <br /><br />
+            gparted
+            <br />
+            nvme list # apt install nvme-cli
+            <br />
+            lsscsi
+            <br />
+            lspci
+            <br />
+            lscpu
+            <br />
+            lsmem
+            <br />
+            lshw")
+        Disks("Disks
+            <br /><br />
+            /dev/nvme0n1
+            <br />
+            /dev/nvme1n1")
+        gnome-disks("gnome-disks
+            <br /><br />
+            # apt install gnome-disk-utility")
+        fdisk(fdisk -l)
+        gpt(GPT a.k.a GUID Partition Table)
+        mbr(DOS a.k.a Master Boot Record)
+        lsblk-disks(lsblk -a -o+uuid)
+        Disks-.->gnome-disks
+        Disks-.->fdisk
+        Disks-.->lsblk-disks
+        disktypes(Disk Types)
+        disktypes-.->gpt
+        disktypes-.->mbr
+        Disks-.->disktypes
+
+        Partitions("Partitions
+            <br /><br />
+            /dev/nvme0n1*
+            <br />
+            /dev/nvme1n1p1
+            <br />
+            /dev/nvme1n1p2
+            <br />
+            /dev/nvme1n1p3")
+        df-partitions(df -hT)
+        file-partitions(file -sL)
+        Partitions-.->df-partitions
+        Partitions-.->file-partitions
+        liveCD-.->Disks
+        Disks-.->Partitions
+        Partitions-.->whatweknow-.->cryptsetup
+    end
+
+    subgraph "LVM 2 Diagnostics"
+        lvm(LVM 2)
+        cryptsetup-->lvm
+        pvscan(pvscan)
+        node-duplicate-uuids-from-cloning("Duplicate UUIDs from cloning
+            <br /><br />
+            If you have a backup plugged in , there may be a conflict
+            <br />
+            due to name duplication at Volume Group level and/or
+            <br />
+            UUID duplication at the PV and VG level
+            <br /><br />
+            pvs -a")
+        node-duplicate-uuids-from-cloning-.->node-switch-clone-to-different-uuids("# close the ORIGINAL LUKS to avoid renaming the ORIGINAL Volume Group
+            <br />
+            cryptsetup close luks-$(blkid -s UUID -o value /dev/nvme1n1p3)
+            <br /><br />
+            # change the VG name. Use the new name hereafter
+            <br />
+            vgrename qubes_dom0 qubes_dom0_backup
+            <br /><br />
+            # deactivate all VGs for a PV you want to change UUID for
+            <br />
+            vgchange -an qubes_dom0_backup
+            <br /><br />
+            # change the VG uuid
+            <br />
+            vgchange --uuid qubes_dom0_backup
+            <br />
+            : pvs
+            <br /><br />
+            # change the PV uuid
+            <br />
+            pvchange --uuid /dev/nvme0n1p3
+            <br />
+            : pvs
+            <br /><br />
+            # enable all VGs for the PV
+            <br />
+            vgchange -ay qubes_dom0_backup
+            <br /><br />
+            : vgdisplay -v
+            # verbose
+            <br />
+            <br />
+            vgdisplay
+            <br />
+            vgs
+            <br />
+            pvdisplay
+            <br />
+            pvs")
+        pv_utils-.->pvscan
+        lvm-ssh-transfer("lvm-ssh-transfer
+            <br /><br />
+            https://github.com/daniol/lvm-ssh-transfer
+            <br />
+            This can do with a LOT of optimizations
+            <br />
+            I am writing an lvm2-ssh-clone")
+        lvm-.->lvm-ssh-transfer
+
+        pvdisplay(pvdisplay)
+        pvs(pvs)
+
+        pvscan-.->pvdisplay
+        pvscan-.->pvs
+        pvscan-.->pvmove
+
+        vgscan(vgscan)
+        pvscan-->vgscan
+
+
+        vgdisplay(vgdisplay)
+        vgs(vgs)
+        vgchange_ay(vgchange -ay)
+
+        vgscan-.->vgdisplay
+        vgscan-.->vgs
+        vgscan-.->vgchange_ay
+
+        lvscan(lvscan)
+        vgscan-->lvscan
+
+        lvs(lvs)
+        lvdisplay(lvdisplay)
+        lvscan-.->lvdisplay
+        lvdisplay_m(lvdisplay -m)
+        lvdisplay-.->lvdisplay_m
+        lvscan-.->lvs
+        lvscan-.->lvcreate
+        lvs_devices(lvs -o +devices)
+        lvs-.->lvs_devices
+
+        lvm_utils(Logical Volume Manager _LVM_ UTILS <br /><br /> lvm <br /> lvm.conf <br /> lvmconfig <br /> lvm-fullreport <br /> lvm-lvpoll <br /> lvm2-activation-generator <br /> blkdeactivate <br /> lvmdump <br /> dmeventd <br /> lvmpolld <br /> lvmlockd <br /> lvmlockctl <br /> cmirrord <br /> lvmdbusd <br /> lvmsystemid <br /> lvmreport <br /> lvmraid <br /> lvmthin <br /> lvmcache)
+        lvm-->lvm_utils
+
+        pv_utils(Physical Volume _PV_ UTILS <br /><br /> pvchange <br /> pvck <br /> pvcreate <br /> pvdisplay <br /> pvmove <br /> pvremove <br /> pvresize <br /> pvs <br /> pvscan)
+        lvm-.->pv_utils
+
+        vg_utils(Volume Group _VG_ UTILS <br /><br /> vgcfgbackup <br /> vgcfgrestore <br /> vgchange <br /> vgck <br /> vgcreate <br /> vgconvert <br /> vgdisplay <br /> vgexport <br /> vgextend <br /> vgimport <br /> vgimportclone <br /> vgmerge <br /> vgmknodes <br /> vgreduce <br /> vgremove <br /> vgrename <br /> vgs <br /> vgscan <br /> vgsplit)
+        lvm-.->vg_utils
+        vg_utils-.->vgscan
+
+        lv_utils(Logical Volume _LV_ UTILS <br /><br /> lvcreate <br /> lvchange <br /> lvconvert <br /> lvdisplay <br /> lvextend <br /> lvreduce <br /> lvremove <br /> lvrename <br /> lvresize <br /> lvs <br /> lvscan)
+        lvm-.->lv_utils
+        lv_utils-.->lvscan
+
+        dmsetup_ls("dmsetup ls
+            <br />
+            dmsetup ls --tree
+            <br />
+            dmsetup info
+            <br />
+            dmsetup deps
+            <br />
+            dmsetup status
+            <br />
+            dmsetup stats
+            ")
+        lvm_utils-->dmsetup_ls
+        dmsetup_ls-->pvscan
+
+    end
+    legend("Legend
+        <br /><br />
+        LUKS - Linux Unified Key Setup
+        <br />
+        LVM 2 - Logical Volume Manager version 2
+        <br />
+        PV - Physical Volume
+        <br />
+        VG - Volume Group
+        <br />
+        LV - Logical Volume
+    ")
+    copyright("Copyright 2021 Ranjeet Shetye All Rights Reserved")
+    licence("Licenced under GOOD KARMA LICENCE @ https://github.com/rshetye/good-karma/blob/main/LICENSE.md
+        <br />
+        Click to view")
+    click licence "https://github.com/rshetye/good-karma/blob/main/LICENSE.md" "GOOD KARMA LICENCE"
+    copyright-->licence
+
+    class node-luks-destroy InfoMissing
+

@@ -1,0 +1,32 @@
+graph TD;
+    node("Start design with Volume Groups (VGs)
+        <br>
+        Chunk up to finetune Logical Volumes (LVs)
+        <br>
+        Chunk down to allocate Physical Volumes (PVs)
+        ")
+    subgraph Example
+        LV-WebServer-->VolGroup-IT
+        LV-TicketingSystem-->VolGroup-IT
+        LV-DocumentServer-->VolGroup-IT
+        LV-PrintServer-->VolGroup-IT
+        LV-Audit-->VolGroup-Finance
+        LV-Reqs-->VolGroup-HR
+        LV-Salary-->VolGroup-Finance
+        VolGroup-IT-->PV000
+        VolGroup-IT-->PV001
+        VolGroup-IT-->PV002
+        VolGroup-IT-->PV003
+        VolGroup-HR-->PV000
+        VolGroup-HR-->PV003
+        VolGroup-Finance-->PV002
+        VolGroup-Finance-->PV003
+        VolGroup-Finance-->PV004
+    end
+
+    copyright("Copyright 2021 Ranjeet Shetye All Rights Reserved")
+    licence("Licenced under GOOD KARMA LICENCE @ https://github.com/rshetye/good-karma/blob/main/LICENSE.md
+        <br />
+        Click to view")
+    click licence "https://github.com/rshetye/good-karma/blob/main/LICENSE.md" "GOOD KARMA LICENCE"
+    copyright-->licence
